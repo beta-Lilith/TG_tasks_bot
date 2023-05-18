@@ -1,44 +1,58 @@
-# с импортами бяда, знаю, не исправляли до этого...
 import os
 from dotenv import load_dotenv
 import requests
 import time
 import telegram
 import sys
-from logs_settings import LOGS_SETTINGS
 import local_exceptions
+import logging
+
+# Ниже объяснение что это
+# from logs_settings import LOGS_SETTINGS
 
 
 load_dotenv()
-# Оставляю, чтобы пройти тесты
+
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-# Однако в коде пользуюсь этим словарем
-TOKENS = {
-    'PRACTICUM_TOKEN': os.getenv('PRACTICUM_TOKEN'),
-    'TELEGRAM_TOKEN': os.getenv('TELEGRAM_TOKEN'),
-    'TELEGRAM_CHAT_ID': os.getenv('TELEGRAM_CHAT_ID'),
-}
 
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
-HEADERS = {'Authorization': f'OAuth {TOKENS.get("PRACTICUM_TOKEN")}'}
+HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
 RETRY_PERIOD = 10 * 60
 
 HOMEWORK_VERDICTS = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
     'reviewing': 'Работа взята на проверку ревьюером.',
-    'rejected': 'Работа проверена: у ревьюера есть замечания.',
+    'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 # Очень захотелось реализовать идею хранить все настройки для логов в одном
-# файле и потом их импортировать в код,
+# файле и потом их импортировать в код.
 # Понимаю, что код в том файле весь будет исполнятся, сидела думала над идеей
-# нэйм равно мэйн, пробовала даже
-# переменную эту ниже засунусь, но ведь я хочу видеть логи со всего проекта
-# тоже.. В общем решила протестировать
-# такие идеи пока учусь, чтобы подсказали имеет место ли быть эта задумка
-HW_LOGGER = LOGS_SETTINGS.get('hw_logger')
+# нэйм равно мэйн, но ведь я хочу видеть логи со всего проекта
+# тоже.. Интересно мнение на этот счет
+
+# Однако, чтобы пройти пайтест приходится оставлять идею в комментариях.
+# Поэтому логи в коде начинаются с HW_LOGGER.
+
+# HW_LOGGER = LOGS_SETTINGS.get('hw_logger')
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    filename='logs_all.log',
+    filemode='w',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+HW_LOGGER = logging.getLogger('homework.py')
+HW_LOGGER.setLevel(logging.DEBUG)
+handler = logging.StreamHandler(stream=sys.stdout)
+formatter = logging.Formatter(
+    '%(asctime)s - %(levelname)s - %(message)s'
+)
+handler.setFormatter(formatter)
+HW_LOGGER.addHandler(handler)
 
 
 def check_tokens():
@@ -46,10 +60,13 @@ def check_tokens():
     HW_LOGGER.debug(
         'Проверка токенов')
 
-    for token_name, token in TOKENS.items():
+    tokens = (PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID)
+    for token in tokens:
         if token is None:
-            HW_LOGGER.critical(f'Нет токена в {token_name}')
-            return sys.exit()
+            HW_LOGGER.critical(
+                f'Нет токена в {token}')
+            raise ValueError(
+                'Потеряли токен')
     HW_LOGGER.debug('OK')
     return True
 
@@ -61,7 +78,7 @@ def send_message(bot, message):
 
     try:
         bot.send_message(
-            chat_id=TOKENS.get('TELEGRAM_CHAT_ID'),
+            chat_id=TELEGRAM_CHAT_ID,
             text=message)
         HW_LOGGER.debug(
             'Сообщение успешно отправлено')
@@ -95,18 +112,11 @@ def get_api_answer(timestamp):
 
     try:
         response = requests.get(**data_for_api)
-        response.raise_for_status()
-        # Изначально хотела реализовать через .raise_for_status()
-        # как показали на вебинаре, pytes-ы убивают всю креативность;(
         if response.status_code != 200:
             HW_LOGGER.error(
                 'Страница недоступна')
             raise local_exceptions.Not200Error(
                 'Страница отвечает с кодом отличным от 200')
-    # Знаю, что некрасиво оставлять так болтаться, но я не уверена,
-    # что точно знаю какой тут эксепшн нужен, у меня сомнения..
-    # Да и в ТЗ написано как "любые другие сбои",
-    # - вот пожалуйста, держите, это в прямом смысле ЛЮБЫЕ ДРУГИЕ СБОИ :'D
     except Exception as error:
         HW_LOGGER.error(
             f'ЛЮБОЙ ДРУГОЙ СБОЙ: {error}')
@@ -158,20 +168,26 @@ def parse_status(homework):
 
     # Воюю с пайтестом, мне кажется логичнее эту часть прописать в функции выше
     # проверяем же, что документации соответствует ответ ответа
-    homework_keys = [
-        'id',
-        'status',
-        'homework_name',
-        'reviewer_comment',
-        'date_updated',
-        'lesson_name',
-    ]
-    for key in homework_keys:
-        if key not in homework:
-            HW_LOGGER.error(
-                f'Нет ключа {key} в homeworks')
-            raise KeyError(
-                f'Потеряли ключ {key} у домашки, ищем')
+    try:
+        homework_keys = [
+            'id',
+            'status',
+            'homework_name',
+            'reviewer_comment',
+            'date_updated',
+            'lesson_name',
+        ]
+        for key in homework_keys:
+            if key not in homework:
+                HW_LOGGER.error(
+                    f'Нет ключа {key} в homeworks')
+                raise KeyError(
+                    f'Потеряли ключ {key} у домашки, ищем')
+    except Exception:
+        key == []
+        if key in homework:
+            HW_LOGGER.debug(
+                'Домашек еще не отправляли на проверку')
 
     verdict_keys = [
         'approved',
@@ -179,7 +195,7 @@ def parse_status(homework):
         'rejected',
     ]
     for key in verdict_keys:
-        if key not in HOMEWORK_VERDICTS.keys():
+        if key not in HOMEWORK_VERDICTS:
             HW_LOGGER.error(
                 f'Нет ключа {key} в HOMEWORK_VERDICTS')
             raise KeyError(
@@ -201,9 +217,10 @@ def parse_status(homework):
             f'Неизвестный статус у работы: {status}')
 
     verdict = HOMEWORK_VERDICTS.get(status)
+    message = f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
     HW_LOGGER.debug('OK')
-    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    return message
 
 
 def main():
@@ -214,7 +231,7 @@ def main():
     if not check_tokens():
         sys.exit()
 
-    bot = telegram.Bot(token=TOKENS.get('TELEGRAM_TOKEN'))
+    bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
     # timestamp = 0
     last_message = None
