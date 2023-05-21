@@ -33,7 +33,7 @@ LOGS_OK = 'OK'
 LOGS_END = '--- end of file ---'
 # func check_tokens
 TOKENS_LOGS_START = 'Проверка токенов'
-NO_TOKENS_LOGS = 'Нет токена в {token_name}'
+NO_TOKENS_LOGS = 'Потеряли токен(ы) в {missing_tokens}'
 NO_TOKENS_RAISE = 'Потеряли токен(ы): {missing_tokens}'
 # func send_message
 MESSAGE_LOGS_START = 'Отправляем сообщение в ТГ...'
@@ -41,21 +41,27 @@ MESSAGE_SENT_LOGS = 'Сообщение успешно отправлено. {me
 MESSAGE_NOT_SENT_LOGS = 'Ошибка {error} при отправке сообщения:\n{message}'
 # func get_api_answer
 API_LOGS_START = 'Проверка запроса к API'
-API_BAD_REQUEST_RAISE = ('Сбой в запросе к API: {error}\n'
-                         'Отправили данные:\n'
-                         'url - {url}\n'
-                         'headers - {headers}\n'
-                         'params - {params}')
-API_NOT200_RAISE = ('Ответ не 200, а {status_code}\n'
-                    'Отправили данные:\n'
-                    'url - {url}\n'
-                    'headers - {headers}\n'
-                    'params - {params}')
-API_BAD_JSON_RAISE = ('Ошибка сервера {key_code} {code}: {key_error} {error}\n'
-                      'Отправили данные:\n'
-                      'url - {url}\n'
-                      'headers - {headers}\n'
-                      'params - {params}')
+API_BAD_REQUEST_RAISE = (
+    'Сбой в запросе к API: {error}\n'
+    'Отправили данные:\n'
+    'url - {url}\n'
+    'headers - {headers}\n'
+    'params - {params}'
+)
+API_NOT200_RAISE = (
+    'Ответ не 200, а {status_code}\n'
+    'Отправили данные:\n'
+    'url - {url}\n'
+    'headers - {headers}\n'
+    'params - {params}'
+)
+API_BAD_JSON_RAISE = (
+    'Ошибка сервера {key}: {error}\n'
+    'Отправили данные:\n'
+    'url - {url}\n'
+    'headers - {headers}\n'
+    'params - {params}'
+)
 # func check_response
 RESPONSE_LOGS_START = 'Проверка ответа API'
 RESPONCE_NOT_DICT_RAISE = 'Ответ от API не словарь, a {type}'
@@ -66,27 +72,36 @@ STATUS_LOGS_START = 'Проверка статуса домашней работ
 STATUS_UNKNOWN_NAME_RAISE = 'Нет ключа homework_name в домашке'
 STATUS_UNKNOWN_RAISE = 'Нет ключа status в домашке'
 STATUS_NOT_IN_VERDICTS_RAISE = 'Статуса {status} нет в HOMEWORK_VERDICTS'
-STATUS_MESSAGE = ('Изменился статус проверки работы '
-                  '"{homework_name}". {verdict}')
+STATUS_MESSAGE = (
+    'Изменился статус проверки работы '
+    '"{homework_name}". {verdict}'
+)
 # func main LOGS
 MAIN_LOGS_START = '--- beginning of file ---'
 MAIN_NO_UPDATES = 'Статус домашки не менялся'
 MAIN_ERROR_MESSAGE = 'Хьюстон, у нас проблемы: {error}'
 
+# Оставляю как коммент в коде потому что ночью отправляю, перед отправкой
+# в пачке не уточнить, почему .join использую, я гуглила как избавиться
+# в выводе от [], метод str() не дал мне этого результата, возможно я ошиблась,
+# но мне просто хочется чтобы в логи выводилось
+# Потеряли токен(ы): PRACTICUM_TOKEN, TELEGRAM_CHAT_ID например,
+# а не Потеряли токен(ы) в ['PRACTICUM_TOKEN', 'TELEGRAM_CHAT_ID']
+# оставляю для примера как пыталась оба варианта
+
 
 def check_tokens():
     """Переменные окружения доступны."""
     logging.debug(TOKENS_LOGS_START)
-    missing_tokens = []
-    for token_name in TOKENS:
-        if globals()[token_name] is None:
-            logging.critical(NO_TOKENS_LOGS.format(
-                token_name=token_name)
-            )
-            missing_tokens.append(token_name)
-    if len(missing_tokens) > 0:
+    missing_tokens = [token_name
+                      for token_name in TOKENS
+                      if globals()[token_name] is None]
+    if missing_tokens:
+        logging.critical(NO_TOKENS_LOGS.format(
+            missing_tokens=str(missing_tokens))
+        )
         raise ValueError(NO_TOKENS_RAISE.format(
-            missing_tokens=", ".join(missing_tokens))
+            missing_tokens=', '.join(missing_tokens))
         )
 
 
@@ -130,14 +145,13 @@ def get_api_answer(timestamp):
             **data_for_api)
         )
     response = response.json()
-    if 'code' in response or 'error' in response:
-        raise local_exceptions.APIErrorKeyError(API_BAD_JSON_RAISE.format(
-            code=response.get('code'),
-            error=response.get('error'),
-            key_code='code',
-            key_error='error',
-            **data_for_api)
-        )
+    for key in ['code', 'error']:
+        if key in response:
+            raise local_exceptions.APIErrorKeyError(API_BAD_JSON_RAISE.format(
+                key=key,
+                error=response.get(key),
+                **data_for_api)
+            )
     logging.debug(LOGS_OK)
     return response
 
@@ -151,7 +165,7 @@ def check_response(response):
         )
     if 'homeworks' not in response:
         raise KeyError(RESPONSE_NO_HOMEWORKS_RAISE)
-    homeworks = response.get('homeworks')
+    homeworks = response['homeworks']
     if not isinstance(homeworks, list):
         raise TypeError(RESPONSE_HOMEWORKS_NOT_LIST_RAISE.format(
             type=type(homeworks))
@@ -185,7 +199,6 @@ def main():
     check_tokens()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
-    # timestamp = 0
     last_message = None
     while True:
         try:
@@ -195,18 +208,15 @@ def main():
                 logging.debug(MAIN_NO_UPDATES)
                 continue
             message = parse_status(homeworks[0])
-            successfully_sent = send_message(bot, message)
-            if successfully_sent and last_message != message:
+            if send_message(bot, message) and last_message != message:
                 last_message = message
                 timestamp = response.get('current_date', timestamp)
         except Exception as error:
             error_message = MAIN_ERROR_MESSAGE.format(
                 error=error)
             logging.exception(error_message)
-            if last_message != error_message:
-                successfully_sent = send_message(bot, error_message)
-                if successfully_sent:
-                    last_message = error_message
+            if send_message(bot, message) and last_message != error_message:
+                last_message = error_message
         finally:
             time.sleep(RETRY_PERIOD)
 
