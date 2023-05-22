@@ -81,14 +81,6 @@ MAIN_LOGS_START = '--- beginning of file ---'
 MAIN_NO_UPDATES = 'Статус домашки не менялся'
 MAIN_ERROR_MESSAGE = 'Хьюстон, у нас проблемы: {error}'
 
-# Оставляю как коммент в коде потому что ночью отправляю, перед отправкой
-# в пачке не уточнить, почему .join использую, я гуглила как избавиться
-# в выводе от [], метод str() не дал мне этого результата, возможно я ошиблась,
-# но мне просто хочется чтобы в логи выводилось
-# Потеряли токен(ы): PRACTICUM_TOKEN, TELEGRAM_CHAT_ID например,
-# а не Потеряли токен(ы) в ['PRACTICUM_TOKEN', 'TELEGRAM_CHAT_ID']
-# оставляю для примера как пыталась оба варианта
-
 
 def check_tokens():
     """Переменные окружения доступны."""
@@ -98,10 +90,10 @@ def check_tokens():
                       if globals()[token_name] is None]
     if missing_tokens:
         logging.critical(NO_TOKENS_LOGS.format(
-            missing_tokens=str(missing_tokens))
+            missing_tokens=missing_tokens)
         )
         raise ValueError(NO_TOKENS_RAISE.format(
-            missing_tokens=', '.join(missing_tokens))
+            missing_tokens=missing_tokens)
         )
 
 
@@ -208,14 +200,15 @@ def main():
                 logging.debug(MAIN_NO_UPDATES)
                 continue
             message = parse_status(homeworks[0])
-            if send_message(bot, message) and last_message != message:
+            if last_message != message and send_message(bot, message):
                 last_message = message
                 timestamp = response.get('current_date', timestamp)
         except Exception as error:
             error_message = MAIN_ERROR_MESSAGE.format(
                 error=error)
             logging.exception(error_message)
-            if send_message(bot, message) and last_message != error_message:
+            if (last_message != error_message
+               and send_message(bot, error_message)):
                 last_message = error_message
         finally:
             time.sleep(RETRY_PERIOD)
